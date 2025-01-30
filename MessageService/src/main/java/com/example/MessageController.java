@@ -8,7 +8,7 @@ public class MessageController{
 
     @GetMapping("/message_service")
     public String messageService(){
-        return "No such functional yet!";
+        return "No functional from Message Service yet!";
     }
 
 }

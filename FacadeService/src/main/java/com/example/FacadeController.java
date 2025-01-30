@@ -1,12 +1,12 @@
 package com.example;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -16,8 +16,18 @@ import java.util.UUID;
 public class FacadeController {
 
     private final RestTemplate restTemplate;
-    static String loggingURL = "http://localhost:1235/logging_service";
-    static String messageURL = "http://localhost:1236/message_service";
+    @Value("${logging.service.url}")
+    private String loggingURL;
+
+    @Value("${message.service.url}")
+    private String messageURL;
+
+    @Value("${retries}")
+    private int maxAttempts;
+
+    @Value("${delay.milliseconds}")
+    private long delayMillis;
+
 
     @Autowired
     public FacadeController(RestTemplate restTemplate) {
@@ -25,9 +35,7 @@ public class FacadeController {
     }
 
     private String fetchExternalData(String url, String uuid, String serviceName) {
-        int maxAttempts = 3;
         int attempt = 0;
-        long delayMillis = 2000;
 
         while (attempt < maxAttempts) {
             try {
@@ -80,7 +88,7 @@ public class FacadeController {
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(loggingURL, requestJSON, String.class);
             if (response.getStatusCode().is2xxSuccessful()) {
-                return ResponseEntity.ok("Saved message successfully.");
+                return ResponseEntity.ok("Saved message successfully.\n");
             } else {
                 return ResponseEntity.status(response.getStatusCode()).body("Failed to save message.");
             }
