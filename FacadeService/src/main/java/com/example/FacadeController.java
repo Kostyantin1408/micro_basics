@@ -50,6 +50,7 @@ public class FacadeController {
                 System.err.println("Error fetching data from " + serviceName + ": " + e.getMessage());
             }
             attempt++;
+            System.out.println("Trying to make request for the " + attempt + " time");
             if (attempt < maxAttempts) {
                 try {
                     Thread.sleep(delayMillis);
