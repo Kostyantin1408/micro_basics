@@ -1,4 +1,6 @@
 package com.example;
+
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -7,20 +9,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 
 @RestController
 public class FacadeController {
 
     private final RestTemplate restTemplate;
-    @Value("${logging.service.url}")
-    private String loggingURL;
 
-    @Value("${message.service.url}")
-    private String messageURL;
+    @Value("${config.service.url}")
+    private String configServiceUrl;
 
     @Value("${retries}")
     private int maxAttempts;
@@ -64,13 +62,29 @@ public class FacadeController {
     @GetMapping("/facade_service")
     public ResponseEntity<?> getHandler() {
         String uuid = UUID.randomUUID().toString();
-        System.out.println(uuid);
-        String loggingServiceResponse = fetchExternalData(loggingURL, uuid, "logging");
+        Map configResponse = restTemplate.getForEntity(configServiceUrl, Map.class).getBody();
+
+        if (configResponse == null) {
+            return ResponseEntity.status(500).body("Configuration response is null.");
+        }
+
+        Random random = new Random();
+        List<String> loggingUrls = (List<String>) configResponse.get("loggingServiceUrls");
+
+        String loggingServiceResponse = null;
+        int index = random.nextInt(loggingUrls.size());
+        for (int i = 0; i < loggingUrls.size(); ++i) {
+            loggingServiceResponse = fetchExternalData(loggingUrls.get((index + i) % 
+                    loggingUrls.size()), uuid, "logging");
+            if (loggingServiceResponse != null) {
+                break;
+            }
+        }
         if (loggingServiceResponse == null) {
             return ResponseEntity.status(500).body("Error fetching data from logging service.");
         }
 
-        String messageServiceResponse = fetchExternalData(messageURL, uuid, "message");
+        String messageServiceResponse = fetchExternalData((String) configResponse.get("messageServiceUrl"), uuid, "message");
         if (messageServiceResponse == null) {
             return ResponseEntity.status(500).body("Error fetching data from message service.");
         }
@@ -86,7 +100,26 @@ public class FacadeController {
         requestJSON.put("uuid", uuid);
         requestJSON.put("message", requestBody.get("message"));
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(loggingURL, requestJSON, String.class);
+            Map configResponse = restTemplate.getForEntity(configServiceUrl, Map.class).getBody();
+
+            if (configResponse == null) {
+                return ResponseEntity.status(500).body("Configuration response is null.");
+            }
+
+
+            Random random = new Random();
+            List<String> loggingUrls = (List<String>) configResponse.get("loggingServiceUrls");
+            ResponseEntity<String> response = null;
+
+            int index = random.nextInt(loggingUrls.size());
+            for (int i = 0; i < loggingUrls.size(); ++i) {
+                response = restTemplate.postForEntity(
+                        loggingUrls.get((index + i) % loggingUrls.size()),
+                        requestJSON, String.class);
+                if (response.getStatusCode().is2xxSuccessful()) {
+                    break;
+                }
+            }
             if (response.getStatusCode().is2xxSuccessful()) {
                 return ResponseEntity.ok("Saved message successfully.\n");
             } else {
