@@ -1,6 +1,8 @@
 package com.example;
 
 
+import com.hazelcast.collection.IQueue;
+import com.hazelcast.core.HazelcastInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,13 +11,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
+
 import java.util.*;
 
 
 @RestController
 public class FacadeController {
-
-    private final RestTemplate restTemplate;
 
     @Value("${config.service.url}")
     private String configServiceUrl;
@@ -26,9 +27,12 @@ public class FacadeController {
     @Value("${delay.milliseconds}")
     private long delayMillis;
 
+    private final HazelcastInstance hazelcastInstance;
+    private final RestTemplate restTemplate;
 
     @Autowired
-    public FacadeController(RestTemplate restTemplate) {
+    public FacadeController(HazelcastInstance hazelcastInstance, RestTemplate restTemplate) {
+        this.hazelcastInstance = hazelcastInstance;
         this.restTemplate = restTemplate;
     }
 
@@ -40,6 +44,7 @@ public class FacadeController {
                 String fullUrl = url + "?uuid=" + uuid;
                 ResponseEntity<String> response = restTemplate.getForEntity(fullUrl, String.class);
                 if (response.getStatusCode().is2xxSuccessful()) {
+                    System.out.println(response.getBody());
                     return response.getBody();
                 } else {
                     System.err.println("Failed to fetch data from " + serviceName + ": " + response.getStatusCode());
@@ -84,7 +89,16 @@ public class FacadeController {
             return ResponseEntity.status(500).body("Error fetching data from logging service.");
         }
 
-        String messageServiceResponse = fetchExternalData((String) configResponse.get("messageServiceUrl"), uuid, "message");
+        List<String> messageURLs = (List<String>) configResponse.get("messageServiceUrls");
+        String messageServiceResponse = null;
+        int indexMessage = random.nextInt(messageURLs.size());
+        for (int i = 0; i < messageURLs.size(); ++i) {
+            messageServiceResponse = fetchExternalData(messageURLs.get((indexMessage + i) %
+                    messageURLs.size()), uuid, "message");
+            if (messageServiceResponse != null) {
+                break;
+            }
+        }
         if (messageServiceResponse == null) {
             return ResponseEntity.status(500).body("Error fetching data from message service.");
         }
@@ -97,15 +111,17 @@ public class FacadeController {
     public ResponseEntity<String> postHandler(@RequestBody Map<String, String> requestBody) {
         String uuid = UUID.randomUUID().toString();
         Map<String, String> requestJSON = new HashMap<>();
+        String message = requestBody.get("message");
         requestJSON.put("uuid", uuid);
-        requestJSON.put("message", requestBody.get("message"));
+        requestJSON.put("message", message);
+        IQueue<String> queue = hazelcastInstance.getQueue("queue");
+        queue.add(message);
         try {
             Map configResponse = restTemplate.getForEntity(configServiceUrl, Map.class).getBody();
 
             if (configResponse == null) {
                 return ResponseEntity.status(500).body("Configuration response is null.");
             }
-
 
             Random random = new Random();
             List<String> loggingUrls = (List<String>) configResponse.get("loggingServiceUrls");

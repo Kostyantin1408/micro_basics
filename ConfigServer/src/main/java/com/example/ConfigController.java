@@ -12,8 +12,8 @@ import java.util.Map;
 @RestController
 public class ConfigController {
 
-    @Value("${message.service.url}")
-    private String messageServiceUrl;
+    @Value("${message.service.urls}")
+    private String[] messageServiceUrl;
 
     @Value("${logging.service.urls}")
     private String[] loggingServiceUrls;
@@ -22,7 +22,7 @@ public class ConfigController {
     @GetMapping("/config_service")
     public ResponseEntity<Map<String, Object>> getLoggingService() {
         Map<String, Object> response = new HashMap<>();
-        response.put("messageServiceUrl", messageServiceUrl);
+        response.put("messageServiceUrls", messageServiceUrl);
         response.put("loggingServiceUrls", Arrays.asList(loggingServiceUrls));
         return ResponseEntity.ok(response);
     }
