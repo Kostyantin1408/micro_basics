@@ -3,13 +3,17 @@ package com.example;
 
 import com.hazelcast.collection.IQueue;
 import com.hazelcast.core.HazelcastInstance;
+import com.orbitz.consul.KeyValueClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
+import com.orbitz.consul.model.catalog.CatalogService;
+import com.orbitz.consul.Consul;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
@@ -17,9 +21,6 @@ import java.util.*;
 
 @RestController
 public class FacadeController {
-
-    @Value("${config.service.url}")
-    private String configServiceUrl;
 
     @Value("${retries}")
     private int maxAttempts;
@@ -67,20 +68,20 @@ public class FacadeController {
     @GetMapping("/facade_service")
     public ResponseEntity<?> getHandler() {
         String uuid = UUID.randomUUID().toString();
-        Map configResponse = restTemplate.getForEntity(configServiceUrl, Map.class).getBody();
-
-        if (configResponse == null) {
-            return ResponseEntity.status(500).body("Configuration response is null.");
+        Consul consul = Consul.builder().build();
+        List<CatalogService> loggingServices = consul.catalogClient().getService("logging-server").getResponse();
+        if (loggingServices == null || loggingServices.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body("No logging service available");
         }
-
         Random random = new Random();
-        List<String> loggingUrls = (List<String>) configResponse.get("loggingServiceUrls");
 
         String loggingServiceResponse = null;
-        int index = random.nextInt(loggingUrls.size());
-        for (int i = 0; i < loggingUrls.size(); ++i) {
-            loggingServiceResponse = fetchExternalData(loggingUrls.get((index + i) % 
-                    loggingUrls.size()), uuid, "logging");
+        int index = random.nextInt(loggingServices.size());
+        for (int i = 0; i < loggingServices.size(); ++i) {
+            CatalogService service = loggingServices.get((index + i) % loggingServices.size());
+            String serviceUrl = "http://" + service.getAddress() + ":" + service.getServicePort() + "/logging_service";
+            loggingServiceResponse = fetchExternalData(serviceUrl, uuid, "logging");
             if (loggingServiceResponse != null) {
                 break;
             }
@@ -89,12 +90,20 @@ public class FacadeController {
             return ResponseEntity.status(500).body("Error fetching data from logging service.");
         }
 
-        List<String> messageURLs = (List<String>) configResponse.get("messageServiceUrls");
+        List<CatalogService> messageServices = consul.catalogClient().getService("message-server").getResponse();
+        if (messageServices == null || messageServices.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body("No message service available");
+        }
+
         String messageServiceResponse = null;
-        int indexMessage = random.nextInt(messageURLs.size());
-        for (int i = 0; i < messageURLs.size(); ++i) {
-            messageServiceResponse = fetchExternalData(messageURLs.get((indexMessage + i) %
-                    messageURLs.size()), uuid, "message");
+        int indexMessage = random.nextInt(messageServices.size());
+
+        for (int i = 0; i < messageServices.size(); ++i) {
+            CatalogService service = messageServices.get((indexMessage + i) % messageServices.size());
+            String serviceUrl = "http://" + service.getAddress() + ":" + service.getServicePort() + "/message_service";
+            messageServiceResponse = fetchExternalData(serviceUrl, uuid, "message");
+
             if (messageServiceResponse != null) {
                 break;
             }
@@ -109,28 +118,38 @@ public class FacadeController {
 
     @PostMapping("/facade_service")
     public ResponseEntity<String> postHandler(@RequestBody Map<String, String> requestBody) {
+
+        Consul consul = Consul.builder().build();
+        KeyValueClient kvClient = consul.keyValueClient();
+        Optional<String> queue_name = kvClient.getValueAsString("queue-name");
+
+
+
         String uuid = UUID.randomUUID().toString();
         Map<String, String> requestJSON = new HashMap<>();
         String message = requestBody.get("message");
         requestJSON.put("uuid", uuid);
         requestJSON.put("message", message);
-        IQueue<String> queue = hazelcastInstance.getQueue("queue");
+        IQueue<String> queue;
+        queue = queue_name.<IQueue<String>>map(hazelcastInstance::getQueue).orElseGet(() -> hazelcastInstance.getQueue("queue"));
         queue.add(message);
         try {
-            Map configResponse = restTemplate.getForEntity(configServiceUrl, Map.class).getBody();
-
-            if (configResponse == null) {
-                return ResponseEntity.status(500).body("Configuration response is null.");
-            }
 
             Random random = new Random();
-            List<String> loggingUrls = (List<String>) configResponse.get("loggingServiceUrls");
+            List<CatalogService> loggingServices = consul.catalogClient().getService("logging-server").getResponse();
+            if (loggingServices == null || loggingServices.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body("No logging service available");
+            }
             ResponseEntity<String> response = null;
 
-            int index = random.nextInt(loggingUrls.size());
-            for (int i = 0; i < loggingUrls.size(); ++i) {
+            int index = random.nextInt(loggingServices.size());
+            for (int i = 0; i < loggingServices.size(); ++i) {
+                CatalogService service = loggingServices.get((index + i) % loggingServices.size());
+                String serviceUrl = "http://" + service.getAddress() + ":" + service.getServicePort() + "/logging_service";
+                System.out.println(serviceUrl);
                 response = restTemplate.postForEntity(
-                        loggingUrls.get((index + i) % loggingUrls.size()),
+                        serviceUrl,
                         requestJSON, String.class);
                 if (response.getStatusCode().is2xxSuccessful()) {
                     break;
