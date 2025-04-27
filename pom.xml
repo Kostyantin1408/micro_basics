@@ -14,7 +14,6 @@
         <module>FacadeService</module>
         <module>LoggingService</module>
         <module>MessageService</module>
-        <module>ConfigServer</module>
     </modules>
 
     <properties>
@@ -38,6 +37,13 @@
                 <groupId>com.hazelcast</groupId>
                 <artifactId>hazelcast-spring</artifactId>
                 <version>5.5.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>2024.0.0</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
